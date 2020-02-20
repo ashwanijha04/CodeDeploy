@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM function to automatically clean up Auto Scaling Groups left behind by failed CodeDeploy Blue/Green deployments
+Resources:
+  ASGCleaner:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 30
+      Handler: index.lambda_handler
+      Runtime: python3.7
+      Policies:
+       - Version: '2012-10-17'
+         Statement:
+           - Effect: Allow
+             Action:
+               - codedeploy:GetDeployment
+             Resource: '*'
+           - Effect: Allow
+             Action:
+               - autoscaling:DeleteAutoScalingGroup
+             Resource: !Sub 'arn:${AWS::Partition}:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/CodeDeploy_BlueGreen_*'
+      Events:
+        FailedDeployments:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source:
+                - aws.codedeploy
+              detail-type:
+                - CodeDeploy Deployment State-change Notification
+              detail:
+                state:
+                  - FAILURE
+      InlineCode: |
+        import boto3
+
+        cd_client = boto3.client('codedeploy')
+        asg_client = boto3.client('autoscaling')
+
+        def deleteGreenASG(targetASGs):
+            for autoScalingGroup in targetASGs:
+                try:
+                    print(f"Attempting to remove Auto Scaling Group '{autoScalingGroup}'")
+                    response = asg_client.delete_auto_scaling_group(
+                        AutoScalingGroupName=autoScalingGroup,
+                        ForceDelete = True
+                    )
+                except:
+                    raise
+                else:          
+                    print("Auto Scaling Group successfully removed.")
+
+        def lambda_handler(event, context):
+            application =  event['detail']['application']
+            deploymentId = event['detail']['deploymentId']
+            deploymentGroup = event['detail']['deploymentGroup']
+            
+            print(f"Starting cleanup for failed deployment {deploymentId} (Application = {application} | Deployment Group = {deploymentGroup})")
+            
+            # Load deployment object
+            try:
+                deployment = cd_client.get_deployment(deploymentId=deploymentId)
+            except cd_client.exceptions.DeploymentDoesNotExistException as err:
+                print(f"Deployment ID {deploymentId} does not exist. Exiting...")
+                raise
+            except:
+                raise
+            
+            # Only EC2 Blue/Green deployments have 'targetInstances' defined
+            if 'targetInstances' in deployment['deploymentInfo']:
+                targetASGs = deployment['deploymentInfo']['targetInstances']['autoScalingGroups']
+                deleteGreenASG(targetASGs)
+            else:
+                print("This does not appear to be a valid EC2 Blue/Green deployment. Nothing to do...")
