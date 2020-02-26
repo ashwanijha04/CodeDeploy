@@ -32,20 +32,32 @@ Resources:
                 state:
                   - FAILURE
       InlineCode: |
+
+        import boto3
+        cd_client = boto3.client('codedeploy')
+        asg_client = boto3.client('autoscaling')
+
+
         def lambda_handler(event, context):
+
+          # Get the deployment details
+
           application =  event['detail']['application']
           deploymentId = event['detail']['deploymentId']
           deploymentGroup = event['detail']['deploymentGroup']
 
+          # Get the ASG created by this failed deployment
+
           print(f"Starting cleanup for failed deployment {deploymentId} (Application = {application} | Deployment Group = {deploymentGroup})")
           asg = 'CodeDeploy_' + deploymentGroup + '_' + deploymentId
-          print('AutoScaling Group: ', asg)
 
+          print('AutoScaling Group: ', asg)
           deployment = cd_client.get_deployment(deploymentId=deploymentId)
           deployment_type = deployment['deploymentInfo']['deploymentStyle']['deploymentType']
 
           print('Deployment Type:', deployment_type)
 
+          # Only Blue Green Deployments should be deleted
           if(deployment_type == 'BLUE_GREEN'):
               try:
                   print(f"Attempting to remove Auto Scaling Group '{asg}'")
@@ -58,6 +70,3 @@ Resources:
                   print('Process Complete.')
           else:
               print('The deployment is not a blue green deployment. Taking no action.')
-              import boto3
-              cd_client = boto3.client('codedeploy')
-              asg_client = boto3.client('autoscaling')
