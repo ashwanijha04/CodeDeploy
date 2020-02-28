@@ -1,0 +1,14 @@
+
+{
+  "source": [
+    "aws.codedeploy"
+  ],
+  "detail-type": [
+    "CodeDeploy Deployment State-change Notification"
+  ],
+  "detail": {
+    "state": [
+      "FAILURE"
+    ]
+  }
+}
